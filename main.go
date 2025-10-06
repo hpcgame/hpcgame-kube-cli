@@ -477,7 +477,7 @@ func copyFiles() {
 	// Handle containers with missing paths
 	if strings.Contains(destination, ":") && strings.HasSuffix(destination, ":") {
 		containerName := strings.TrimSuffix(destination, ":")
-		destination = containerName + ":~/"
+		destination = containerName + ":/partition-data"
 		fmt.Printf("⚠️ No destination path specified, copying to home directory of container %s\n", containerName)
 	}
 
