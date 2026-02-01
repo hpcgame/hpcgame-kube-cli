@@ -246,6 +246,22 @@ func checkKubectlInstalled() bool {
 
 // getKubectlPath returns the absolute path to kubectl executable
 func getKubectlPath() (string, error) {
+	// First, check if kubectl exists in ~/.hpcgame/ (our install location)
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		var kubectlName string
+		if runtime.GOOS == "windows" {
+			kubectlName = "kubectl.exe"
+		} else {
+			kubectlName = "kubectl"
+		}
+		hpcgamePath := filepath.Join(homeDir, ".hpcgame", kubectlName)
+		if _, err := os.Stat(hpcgamePath); err == nil {
+			return hpcgamePath, nil
+		}
+	}
+
+	// Fallback to PATH lookup
 	path, err := exec.LookPath("kubectl")
 	// On Windows, Go 1.19+ returns exec.ErrDot when executable is in current directory
 	// We need to handle this by converting to absolute path
@@ -283,112 +299,129 @@ func kubectlCommand(args ...string) *exec.Cmd {
 func installKubectl() {
 	fmt.Println("Installing kubectl...")
 
-	var cmd *exec.Cmd
+	// Base URL for kubectl binaries
+	baseURL := "https://hpcgame.pku.edu.cn/oss/images/public/sshop"
 
-	// TODO: Update kubectl version as needed
-	kubectlVersion := "v1.35.0"
-
+	// Determine download URL and binary name based on OS/arch
+	var downloadURL, binaryName string
 	switch runtime.GOOS {
-	case "darwin": // macOS
-		if checkCommandExists("brew") {
-			cmd = exec.Command("brew", "install", "kubectl")
-		} else {
-			fmt.Println("Please install Homebrew first: https://brew.sh/")
-			return
-		}
-
-	case "linux":
-		// Ask user where to install kubectl
-		fmt.Println("Where would you like to install kubectl?")
-		fmt.Println("1. /usr/local/bin [Default]")
-		fmt.Println("2. ~/.hpcgame/bin")
-		fmt.Print("Choose option (1/2): ")
-		scanner := bufio.NewScanner(os.Stdin)
-		scanner.Scan()
-		option := scanner.Text()
-		var installPath string
-		if option == "2" {
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
-				fmt.Printf("Failed to get user home directory: %s\n", err)
-				return
-			}
-			installPath = filepath.Join(homeDir, kubeconfigDir, "bin")
-			err = os.MkdirAll(installPath, 0700)
-			if err != nil {
-				fmt.Printf("Failed to create directory: %s\n", err)
-				return
-			}
-			fmt.Printf("Please add %s to your PATH\n", installPath)
-		} else {
-			installPath = "/usr/local/bin"
-		}
-		cmd = exec.Command("bash", "-c",
-			"curl -LO https://dl.k8s.io/release/"+string(kubectlVersion)+"/bin/linux/amd64/kubectl && "+
-				"chmod +x kubectl && "+
-				"sudo mv kubectl "+installPath)
-		if option == "2" {
-			fmt.Printf("Would you like to add %s to PATH by modifying .bashrc and .zshrc? (Y/n): ", installPath)
-			scanner.Scan()
-			addToPath := scanner.Text()
-			// Modify PATH for current session
-			os.Setenv("PATH", os.Getenv("PATH")+":"+installPath)
-			if addToPath != "Y" && addToPath != "y" && addToPath != "" {
-				fmt.Printf("Please manually add %s to your PATH\n", installPath)
-			} else {
-				// Add to .bashrc
-				bashrcPath := filepath.Join(os.Getenv("HOME"), ".bashrc")
-				zshrcPath := filepath.Join(os.Getenv("HOME"), ".zshrc")
-				if _, err := os.Stat(bashrcPath); err == nil {
-					f, err := os.OpenFile(bashrcPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-					if err != nil {
-						fmt.Printf("Failed to open .bashrc: %s\n", err)
-						return
-					}
-					defer f.Close()
-					if _, err := f.WriteString(fmt.Sprintf("\nexport PATH=$PATH:%s\n", installPath)); err != nil {
-						fmt.Printf("Failed to write to .bashrc: %s\n", err)
-						return
-					}
-					fmt.Printf("Added %s to .bashrc\n", installPath)
-				}
-				// Add to .zshrc if it exists
-				if _, err := os.Stat(zshrcPath); err == nil {
-					f, err := os.OpenFile(zshrcPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
-					if err != nil {
-						fmt.Printf("Failed to open .zshrc: %s\n", err)
-						return
-					}
-					defer f.Close()
-					if _, err := f.WriteString(fmt.Sprintf("\nexport PATH=$PATH:%s\n", installPath)); err != nil {
-						fmt.Printf("Failed to write to .zshrc: %s\n", err)
-						return
-					}
-					fmt.Printf("Added %s to .zshrc\n", installPath)
-				}
-			}
-		}
-
 	case "windows":
-		// For Windows, try winget first, then manual download
-		cmd = exec.Command("powershell", "-Command",
-			"if (Get-Command winget -ErrorAction SilentlyContinue) { "+
-				"winget install --id Kubernetes.kubectl -e } else { "+
-				"$url = \"https://dl.k8s.io/release/"+string(kubectlVersion)+"/bin/windows/amd64/kubectl.exe\"; "+
-				"$output = 'kubectl.exe'; "+
-				"Invoke-WebRequest -Uri $url -OutFile $output; "+
-				"Write-Host 'Please move kubectl.exe to a directory in your PATH, such as C:\\Windows\\System32'; "+
-				"Write-Host 'Or manually install kubectl from: https://kubernetes.io/docs/tasks/tools/install-kubectl-windows/'; }")
-
+		downloadURL = baseURL + "/kubectl.exe"
+		binaryName = "kubectl.exe"
+	case "darwin":
+		if runtime.GOARCH == "arm64" {
+			downloadURL = baseURL + "/kubectl-arm64-darwin"
+		} else {
+			downloadURL = baseURL + "/kubectl-amd64-darwin"
+		}
+		binaryName = "kubectl"
+	case "linux":
+		downloadURL = baseURL + "/kubectl-amd64-linux"
+		binaryName = "kubectl"
 	default:
 		fmt.Printf("Unsupported operating system: %s\n", runtime.GOOS)
 		return
 	}
 
-	output, err := cmd.CombinedOutput()
+	// Get install directory (~/.hpcgame/)
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Printf("Failed to install kubectl: %s\n%s\n", err, string(output))
+		fmt.Printf("Failed to get home directory: %s\n", err)
 		return
+	}
+	installDir := filepath.Join(homeDir, ".hpcgame")
+	kubectlPath := filepath.Join(installDir, binaryName)
+
+	// Create directory if not exists
+	if err := os.MkdirAll(installDir, 0755); err != nil {
+		fmt.Printf("Failed to create directory: %s\n", err)
+		return
+	}
+
+	// Download kubectl
+	fmt.Printf("Downloading kubectl from %s...\n", downloadURL)
+	resp, err := http.Get(downloadURL)
+	if err != nil {
+		fmt.Printf("Failed to download kubectl: %s\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Failed to download kubectl: HTTP %d\n", resp.StatusCode)
+		return
+	}
+
+	outFile, err := os.Create(kubectlPath)
+	if err != nil {
+		fmt.Printf("Failed to create file: %s\n", err)
+		return
+	}
+
+	_, err = io.Copy(outFile, resp.Body)
+	outFile.Close()
+	if err != nil {
+		fmt.Printf("Failed to write kubectl: %s\n", err)
+		return
+	}
+
+	// Make executable on Unix systems
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(kubectlPath, 0755); err != nil {
+			fmt.Printf("Failed to make kubectl executable: %s\n", err)
+			return
+		}
+	}
+
+	fmt.Printf("✅ kubectl downloaded to %s\n", kubectlPath)
+
+	// Add to PATH
+	switch runtime.GOOS {
+	case "windows":
+		// Add to user PATH via PowerShell
+		addPathCmd := exec.Command("powershell", "-Command",
+			fmt.Sprintf(`$currentPath = [Environment]::GetEnvironmentVariable('PATH', 'User'); `+
+				`if ($currentPath -notlike '*%s*') { `+
+				`[Environment]::SetEnvironmentVariable('PATH', $currentPath + ';%s', 'User'); `+
+				`Write-Host 'Added to PATH. Please restart your terminal.' `+
+				`} else { Write-Host 'Already in PATH.' }`, installDir, installDir))
+		addPathCmd.Stdout = os.Stdout
+		addPathCmd.Stderr = os.Stderr
+		addPathCmd.Run()
+
+	case "darwin", "linux":
+		// Check if already in PATH
+		currentPath := os.Getenv("PATH")
+		if strings.Contains(currentPath, installDir) {
+			fmt.Println("Already in PATH.")
+		} else {
+			// Add to shell config files
+			shellConfigs := []string{
+				filepath.Join(homeDir, ".bashrc"),
+				filepath.Join(homeDir, ".zshrc"),
+				filepath.Join(homeDir, ".bash_profile"),
+			}
+			pathLine := fmt.Sprintf("\nexport PATH=\"$PATH:%s\"\n", installDir)
+			added := false
+			for _, configFile := range shellConfigs {
+				if _, err := os.Stat(configFile); err == nil {
+					f, err := os.OpenFile(configFile, os.O_APPEND|os.O_WRONLY, 0644)
+					if err == nil {
+						f.WriteString(pathLine)
+						f.Close()
+						fmt.Printf("Added to %s\n", configFile)
+						added = true
+					}
+				}
+			}
+			if added {
+				fmt.Println("Please restart your terminal or run: source ~/.bashrc")
+			} else {
+				fmt.Printf("Please add %s to your PATH manually\n", installDir)
+			}
+			// Update current session
+			os.Setenv("PATH", currentPath+":"+installDir)
+		}
 	}
 
 	fmt.Println("✅ kubectl installed successfully")
@@ -709,11 +742,6 @@ func getPartitions() []Partition {
 	}
 
 	return partitions
-}
-
-func checkCommandExists(cmd string) bool {
-	_, err := exec.LookPath(cmd)
-	return err == nil
 }
 
 func getKubeconfigFromUser() string {
