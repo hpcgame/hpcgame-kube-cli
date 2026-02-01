@@ -93,6 +93,7 @@ hpcgame run -p gpu -c 2 -m 4 -g 1 -n my-container pytorch/pytorch
 -c, --cpu: CPU 核心数
 -m, --memory: 内存大小（GiB）（默认为 CPU×2）
 -g, --gpu: GPU 数量（默认为 0）
+-d, --duration: Pod 最长运行时间（秒）（默认为 7200，即 2 小时）
 -i, --image: 容器镜像（create 命令）
 -n, --name: 容器名称（默认自动生成）
 -v, --volume, --volumes: 要挂载的额外持久卷（逗号分隔）

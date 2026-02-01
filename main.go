@@ -165,6 +165,7 @@ Options for create/run command:
   -c, --cpu INT           Number of CPUs
   -m, --memory INT        Memory in GiB
   -g, --gpu INT           Number of GPUs (default: 0)
+  -d, --duration INT      Pod maximum runtime in seconds (default: 7200, max: 86400 = 1 day)
   -v, --volume LIST       Mount volumes (comma-separated)
   -i, --image STRING      Specify container image
   -n, --name STRING       Assign a name to the container
@@ -836,6 +837,7 @@ func runContainer() {
 	volumeFlag := runCmd.String("volume", "", "Mount volumes (comma-separated)")
 	runCmd.StringVar(volumeFlag, "volumes", "", "Mount volumes (alias)")
 	imageFlag := runCmd.String("image", "", "Specify container image")
+	durationFlag := runCmd.Int64("duration", 7200, "Pod maximum runtime in seconds (default: 7200, i.e., 2 hours)")
 	helpFlag := runCmd.Bool("help", false, "Show help information")
 
 	// Add short flags
@@ -846,6 +848,7 @@ func runContainer() {
 	runCmd.StringVar(nameFlag, "n", "", "Specify container name (short)")
 	runCmd.StringVar(volumeFlag, "v", "", "Mount volumes (short)")
 	runCmd.StringVar(imageFlag, "i", "", "Specify container image (short)")
+	runCmd.Int64Var(durationFlag, "d", 7200, "Pod maximum runtime in seconds (short)")
 	runCmd.BoolVar(helpFlag, "h", false, "Show help information (short)")
 
 	// Parse arguments
@@ -999,9 +1002,20 @@ func runContainer() {
 		name = fmt.Sprintf("container-%d", os.Getpid())
 	}
 
+	// Handle duration
+	duration := *durationFlag
+	if duration > 86400 {
+		fmt.Printf("Duration %d exceeds maximum (86400 seconds = 1 day), setting to 86400\n", duration)
+		duration = 86400
+	}
+	if duration <= 0 {
+		fmt.Println("Duration must be positive, using default: 7200")
+		duration = 7200
+	}
+
 	// Create container
 	fmt.Printf("Creating container %s...\n", name)
-	createErr := deployContainer(kubeconfigPath, partitionStruct, name, cpu, memory, gpu, image, extraVolumes)
+	createErr := deployContainer(kubeconfigPath, partitionStruct, name, cpu, memory, gpu, image, extraVolumes, duration)
 	if createErr != nil {
 		fmt.Printf("Failed to create container: %s\n", createErr)
 		return
@@ -1042,7 +1056,7 @@ func runContainer() {
 	}
 }
 
-func deployContainer(kubeconfigPath string, partition Partition, name string, cpu int, memory int, gpu int, image string, extraVolumes []string) error {
+func deployContainer(kubeconfigPath string, partition Partition, name string, cpu int, memory int, gpu int, image string, extraVolumes []string, duration int64) error {
 	gpulimit := ""
 	if gpu > 0 {
 		gpulimit = fmt.Sprintf("%s: %d", partition.GPUTag, gpu)
@@ -1079,6 +1093,7 @@ kind: Pod
 metadata:
   name: %s
 spec:
+  activeDeadlineSeconds: %d
   nodeSelector:
     hpc.lcpu.dev/partition: %s
   containers:
@@ -1101,7 +1116,7 @@ spec:
 %s
 %s
   restartPolicy: Never
-`, name, partition.Name, image, cpu*1000, memory, gpulimit, cpu*1000, memory, gpulimit, volumeMountsStr, volumesStr)
+`, name, duration, partition.Name, image, cpu*1000, memory, gpulimit, cpu*1000, memory, gpulimit, volumeMountsStr, volumesStr)
 
 	// Print YAML config in debug mode
 	if os.Getenv("DEBUG") != "" {
@@ -1150,15 +1165,61 @@ func listContainers() {
 		namespace = "default"
 	}
 
-	// Format output to be more Docker-like
-	cmd = exec.Command("kubectl", "--kubeconfig", kubeconfigPath, "get", "pods", "-n", namespace,
-		"-o", "custom-columns=CONTAINER:.metadata.name,IMAGE:.spec.containers[0].image,STATUS:.status.phase,CREATED:.metadata.creationTimestamp,NODE:.spec.nodeName")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+	// Get pods as JSON to parse detailed status
+	cmd = exec.Command("kubectl", "--kubeconfig", kubeconfigPath, "get", "pods", "-n", namespace, "-o", "json")
+	output, err := cmd.Output()
+	if err != nil {
 		fmt.Printf("Failed to get container list: %s\n", err)
 		return
+	}
+
+	var podList struct {
+		Items []struct {
+			Metadata struct {
+				Name              string `json:"name"`
+				CreationTimestamp string `json:"creationTimestamp"`
+			} `json:"metadata"`
+			Spec struct {
+				NodeName   string `json:"nodeName"`
+				Containers []struct {
+					Image string `json:"image"`
+				} `json:"containers"`
+			} `json:"spec"`
+			Status struct {
+				Phase  string `json:"phase"`
+				Reason string `json:"reason"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+
+	err = json.Unmarshal(output, &podList)
+	if err != nil {
+		fmt.Printf("Failed to parse container list: %s\n", err)
+		return
+	}
+
+	// Print header
+	fmt.Printf("%-20s %-45s %-10s %-22s %s\n", "CONTAINER", "IMAGE", "STATUS", "CREATED", "NODE")
+
+	// Print each container
+	for _, pod := range podList.Items {
+		image := ""
+		if len(pod.Spec.Containers) > 0 {
+			image = pod.Spec.Containers[0].Image
+		}
+
+		// Determine display status
+		status := pod.Status.Phase
+		if pod.Status.Phase == "Failed" && pod.Status.Reason == "DeadlineExceeded" {
+			status = "Timeout"
+		}
+
+		fmt.Printf("%-20s %-45s %-10s %-22s %s\n",
+			pod.Metadata.Name,
+			image,
+			status,
+			pod.Metadata.CreationTimestamp,
+			pod.Spec.NodeName)
 	}
 }
 
@@ -1327,6 +1388,7 @@ func createContainer() {
 	nameFlag := createCmd.String("name", "", "Specify container name")
 	volumesFlag := createCmd.String("volumes", "", "Specify additional volumes to mount (comma-separated)")
 	createCmd.StringVar(volumesFlag, "volume", "", "Specify additional volumes (alias)")
+	durationFlag := createCmd.Int64("duration", 7200, "Pod maximum runtime in seconds (default: 7200, i.e., 2 hours)")
 	helpFlag := createCmd.Bool("help", false, "Show help information")
 
 	// Add short flags
@@ -1337,6 +1399,7 @@ func createContainer() {
 	createCmd.StringVar(imageFlag, "i", "", "Specify container image (short)")
 	createCmd.StringVar(nameFlag, "n", "", "Specify container name (short)")
 	createCmd.StringVar(volumesFlag, "v", "", "Specify additional volumes (short)")
+	createCmd.Int64Var(durationFlag, "d", 7200, "Pod maximum runtime in seconds (short)")
 	createCmd.BoolVar(helpFlag, "h", false, "Show help information (short)")
 
 	// Parse arguments
@@ -1484,9 +1547,20 @@ func createContainer() {
 		name = fmt.Sprintf("container-%d", os.Getpid())
 	}
 
+	// Handle duration
+	duration := *durationFlag
+	if duration > 86400 {
+		fmt.Printf("Duration %d exceeds maximum (86400 seconds = 1 day), setting to 86400\n", duration)
+		duration = 86400
+	}
+	if duration <= 0 {
+		fmt.Println("Duration must be positive, using default: 7200")
+		duration = 7200
+	}
+
 	// Create container
 	fmt.Printf("Creating container %s...\n", name)
-	createErr := deployContainer(kubeconfigPath, partitionStruct, name, cpu, memory, gpu, image, extraVolumes)
+	createErr := deployContainer(kubeconfigPath, partitionStruct, name, cpu, memory, gpu, image, extraVolumes, duration)
 	if createErr != nil {
 		fmt.Printf("Failed to create container: %s\n", createErr)
 		return
