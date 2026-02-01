@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	kubeconfigDir  = ".hpcgame"
-	kubeconfigFile = "kubeconfig"
+	kubeconfigDir  = ".kube"
+	kubeconfigFile = "config"
 	version        = "0.5.0"
 )
 
