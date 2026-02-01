@@ -20,7 +20,7 @@ import (
 const (
 	kubeconfigDir  = ".hpcgame"
 	kubeconfigFile = "kubeconfig"
-	version        = "0.4.0"
+	version        = "0.5.0"
 )
 
 type Container struct {
@@ -360,8 +360,12 @@ func listPartitions(partitions []Partition) {
 	fmt.Println("Available partitions:")
 	fmt.Println("------------------------------------------------")
 	for i, partition := range partitions {
+		partitionDisplay := partition.GetDisplayName()
+		if partition.Name != "" && partition.Name != partition.DisplayName {
+			partitionDisplay = fmt.Sprintf("%s (%s)", partitionDisplay, partition.Name)
+		}
 		info := fmt.Sprintf("[%d] Partition: %s\n\tDescription: %s\n\tCPU Limit: %d\n\tMemory Limit: %dGiB\n",
-			i, partition.GetDisplayName(), partition.Description, partition.CPULimit, partition.MemoryLimit)
+			i, partitionDisplay, partition.Description, partition.CPULimit, partition.MemoryLimit)
 		if partition.GPUTag != "" {
 			info += fmt.Sprintf("\tAvailable GPU: %s\n", partition.GPUName)
 		}
@@ -830,6 +834,7 @@ func runContainer() {
 	gpuFlag := runCmd.Int("gpu", 0, "Specify GPU count")
 	nameFlag := runCmd.String("name", "", "Specify container name")
 	volumeFlag := runCmd.String("volume", "", "Mount volumes (comma-separated)")
+	runCmd.StringVar(volumeFlag, "volumes", "", "Mount volumes (alias)")
 	imageFlag := runCmd.String("image", "", "Specify container image")
 	helpFlag := runCmd.Bool("help", false, "Show help information")
 
@@ -1321,6 +1326,7 @@ func createContainer() {
 	imageFlag := createCmd.String("image", "", "Specify container image")
 	nameFlag := createCmd.String("name", "", "Specify container name")
 	volumesFlag := createCmd.String("volumes", "", "Specify additional volumes to mount (comma-separated)")
+	createCmd.StringVar(volumesFlag, "volume", "", "Specify additional volumes (alias)")
 	helpFlag := createCmd.Bool("help", false, "Show help information")
 
 	// Add short flags
