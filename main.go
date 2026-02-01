@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -246,15 +247,23 @@ func checkKubectlInstalled() bool {
 // getKubectlPath returns the absolute path to kubectl executable
 func getKubectlPath() (string, error) {
 	path, err := exec.LookPath("kubectl")
+	// On Windows, Go 1.19+ returns exec.ErrDot when executable is in current directory
+	// We need to handle this by converting to absolute path
+	if errors.Is(err, exec.ErrDot) {
+		absPath, absErr := filepath.Abs(path)
+		if absErr != nil {
+			return "", err // return original error if Abs fails
+		}
+		return absPath, nil
+	}
 	if err != nil {
 		return "", err
 	}
-	// On Windows, convert to absolute path to avoid
-	// "cannot run executable found relative to current directory" error
+	// Also convert relative paths to absolute on Windows (for other cases)
 	if runtime.GOOS == "windows" && !filepath.IsAbs(path) {
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			return "", err
+		absPath, absErr := filepath.Abs(path)
+		if absErr != nil {
+			return "", absErr
 		}
 		return absPath, nil
 	}
