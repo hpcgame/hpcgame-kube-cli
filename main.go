@@ -31,13 +31,48 @@ type Container struct {
 }
 
 type Partition struct {
-	Name        string
-	Description string
-	GPUTag      string
-	GPUName     string
-	Images      []string
-	CPULimit    int
-	MemoryLimit int // in GiB
+	Name         string
+	DisplayName  string // User-friendly display name for the partition
+	Description  string
+	GPUTag       string
+	GPUName      string
+	Images       []string
+	CPULimit     int
+	MemoryLimit  int    // in GiB
+	StorageClass string // Storage class for this partition (e.g., "yanyuan-nfs", "wm2-nfs")
+}
+
+// GetDisplayName returns the display name if set, otherwise falls back to Name
+func (p Partition) GetDisplayName() string {
+	if p.DisplayName != "" {
+		return p.DisplayName
+	}
+	return p.Name
+}
+
+// findPartition finds a partition by Name or DisplayName
+// Returns the partition and true if found, empty partition and false otherwise
+func findPartition(partitions []Partition, input string) (Partition, bool) {
+	// First try exact match on Name
+	for _, p := range partitions {
+		if p.Name == input {
+			return p, true
+		}
+	}
+	// Then try exact match on DisplayName
+	for _, p := range partitions {
+		if p.DisplayName == input {
+			return p, true
+		}
+	}
+	// Finally try case-insensitive match on DisplayName
+	inputLower := strings.ToLower(input)
+	for _, p := range partitions {
+		if strings.ToLower(p.DisplayName) == inputLower {
+			return p, true
+		}
+	}
+	return Partition{}, false
 }
 
 type PersistentVolume struct {
@@ -213,7 +248,7 @@ func installKubectl() {
 	var cmd *exec.Cmd
 
 	// TODO: Update kubectl version as needed
-	kubectlVersion := "v1.32.3"
+	kubectlVersion := "v1.35.0"
 
 	switch runtime.GOOS {
 	case "darwin": // macOS
@@ -326,7 +361,7 @@ func listPartitions(partitions []Partition) {
 	fmt.Println("------------------------------------------------")
 	for i, partition := range partitions {
 		info := fmt.Sprintf("[%d] Partition: %s\n\tDescription: %s\n\tCPU Limit: %d\n\tMemory Limit: %dGiB\n",
-			i, partition.Name, partition.Description, partition.CPULimit, partition.MemoryLimit)
+			i, partition.GetDisplayName(), partition.Description, partition.CPULimit, partition.MemoryLimit)
 		if partition.GPUTag != "" {
 			info += fmt.Sprintf("\tAvailable GPU: %s\n", partition.GPUName)
 		}
@@ -349,7 +384,7 @@ func listImages() {
 	fmt.Println("Available images by partition:")
 	fmt.Println("------------------------------------------------")
 	for _, partition := range partitions {
-		fmt.Printf("Partition: %s\n", partition.Name)
+		fmt.Printf("Partition: %s\n", partition.GetDisplayName())
 		for _, image := range partition.Images {
 			fmt.Printf("  %s\n", image)
 		}
@@ -856,34 +891,25 @@ func runContainer() {
 	}
 
 	// Handle partition
-	partitionStruct := Partition{}
-	partition := *partitionFlag
+	partitionInput := *partitionFlag
 
 	// If partition not provided, prompt interactively
-	if partition == "" {
+	if partitionInput == "" {
 		listPartitions(partitions)
 		fmt.Print("Enter partition name: ")
 		scanner := bufio.NewScanner(os.Stdin)
 		if scanner.Scan() {
-			partition = scanner.Text()
+			partitionInput = scanner.Text()
 		} else {
 			fmt.Println("Failed to read input")
 			return
 		}
 	}
 
-	// Validate partition
-	validPartition := false
-	for _, p := range partitions {
-		if p.Name == partition {
-			validPartition = true
-			partitionStruct = p
-			break
-		}
-	}
-
-	if !validPartition {
-		fmt.Printf("Invalid partition name: %s\n", partition)
+	// Validate partition (supports both Name and DisplayName)
+	partitionStruct, found := findPartition(partitions, partitionInput)
+	if !found {
+		fmt.Printf("Invalid partition: %s\n", partitionInput)
 		listPartitions(partitions)
 		return
 	}
@@ -992,7 +1018,7 @@ func runContainer() {
 
 	// Print information about the container
 	fmt.Printf("Container %s is ready\n", name)
-	fmt.Printf("Partition: %s, CPUs: %d, Memory: %dGiB", partition, cpu, memory)
+	fmt.Printf("Partition: %s, CPUs: %d, Memory: %dGiB", partitionStruct.GetDisplayName(), cpu, memory)
 	if gpu > 0 {
 		fmt.Printf(", GPUs: %d", gpu)
 	}
@@ -1017,15 +1043,14 @@ func deployContainer(kubeconfigPath string, partition Partition, name string, cp
 		gpulimit = fmt.Sprintf("%s: %d", partition.GPUTag, gpu)
 	}
 
-	partitionName := partition.Name
-	err := ensurePartitionDefaultVolume(kubeconfigPath, partitionName)
+	err := ensurePartitionDefaultVolume(kubeconfigPath, partition)
 	if err != nil {
 		fmt.Printf("Warning: Unable to create default volume: %s\n", err)
 		// Continue without mounting default volume
 	}
 
-	partitionDash := strings.ReplaceAll(partitionName, "_", "-")
-	defaultVolumeName := fmt.Sprintf("%s-default-pvc", partitionDash)
+	// Use StorageClass-based PVC name to allow sharing between partitions with same StorageClass
+	defaultVolumeName := fmt.Sprintf("%s-default-pvc", partition.StorageClass)
 
 	volumeMountsStr := `    volumeMounts:
     - name: default-data-volume
@@ -1158,12 +1183,10 @@ func deleteContainer() {
 	fmt.Printf("✅ Container %s removed\n", containerName)
 }
 
-func ensurePartitionDefaultVolume(kubeconfigPath string, partition string) error {
-	// Convert partition name: replace underscores with hyphens
-	partitionDash := strings.ReplaceAll(partition, "_", "-")
-
-	// Construct default volume name
-	defaultVolumeName := fmt.Sprintf("%s-default-pvc", partitionDash)
+func ensurePartitionDefaultVolume(kubeconfigPath string, partition Partition) error {
+	// Construct default volume name based on StorageClass
+	// This allows partitions with the same StorageClass to share the same PVC
+	defaultVolumeName := fmt.Sprintf("%s-default-pvc", partition.StorageClass)
 
 	// Check if volume already exists
 	cmd := exec.Command("kubectl", "--kubeconfig", kubeconfigPath, "get", "pvc", defaultVolumeName)
@@ -1178,8 +1201,11 @@ func ensurePartitionDefaultVolume(kubeconfigPath string, partition string) error
 		return nil
 	}
 
-	// Construct storage class name
-	storageClassName := fmt.Sprintf("%s-default-sc", partitionDash)
+	// Get storage class name from partition config
+	storageClassName := partition.StorageClass
+	if storageClassName == "" {
+		return fmt.Errorf("partition %s has no StorageClass configured", partition.Name)
+	}
 
 	// Create default volume (200Gi, ReadWriteMany)
 	pvcYAML := fmt.Sprintf(`apiVersion: v1
@@ -1217,7 +1243,7 @@ spec:
 		return fmt.Errorf("failed to create default volume: %s\n%s", err, stderr.String())
 	}
 
-	fmt.Printf("✅ Default volume %s created\n", defaultVolumeName)
+	fmt.Printf("✅ Default volume %s created (StorageClass: %s)\n", defaultVolumeName, storageClassName)
 	return nil
 }
 
@@ -1336,34 +1362,25 @@ func createContainer() {
 	}
 
 	// Handle partition
-	partitionStruct := Partition{}
-	partition := *partitionFlag
+	partitionInput := *partitionFlag
 
 	// If partition not provided, prompt interactively
-	if partition == "" {
+	if partitionInput == "" {
 		listPartitions(partitions)
 		fmt.Print("Enter partition name: ")
 		scanner := bufio.NewScanner(os.Stdin)
 		if scanner.Scan() {
-			partition = scanner.Text()
+			partitionInput = scanner.Text()
 		} else {
 			fmt.Println("Failed to read input")
 			return
 		}
 	}
 
-	// Validate partition
-	validPartition := false
-	for _, p := range partitions {
-		if p.Name == partition {
-			validPartition = true
-			partitionStruct = p
-			break
-		}
-	}
-
-	if !validPartition {
-		fmt.Printf("Invalid partition name: %s\n", partition)
+	// Validate partition (supports both Name and DisplayName)
+	partitionStruct, found := findPartition(partitions, partitionInput)
+	if !found {
+		fmt.Printf("Invalid partition: %s\n", partitionInput)
 		listPartitions(partitions)
 		return
 	}
