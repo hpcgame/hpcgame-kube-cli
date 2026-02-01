@@ -22,7 +22,7 @@ import (
 const (
 	kubeconfigDir  = ".kube"
 	kubeconfigFile = "config"
-	version        = "0.5.0"
+	version        = "0.6.1"
 )
 
 type Container struct {
@@ -490,7 +490,7 @@ func shellContainer() {
 	containerName := os.Args[2]
 	fmt.Printf("Connecting to container %s...\n", containerName)
 
-	cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "exec", "-it", containerName, "--", "/bin/bash")
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "exec", "-it", containerName, "--", "/bin/bash")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -636,7 +636,7 @@ func execInContainer() {
 	kubectlArgs = append(kubectlArgs, containerName, "--")
 	kubectlArgs = append(kubectlArgs, cmdArgs...)
 
-	cmd := kubectlCommand( kubectlArgs...)
+	cmd := kubectlCommand(kubectlArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -680,7 +680,7 @@ func copyFiles() {
 
 	fmt.Printf("Copying: %s -> %s\n", source, destination)
 
-	cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "cp", source, destination)
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "cp", source, destination)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -725,7 +725,7 @@ func portForward() {
 	fmt.Printf("Setting up port forwarding: %s %s\n", containerName, portMapping)
 	fmt.Println("Press Ctrl+C to stop forwarding")
 
-	cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "port-forward", "pod/"+containerName, portMapping)
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "port-forward", "pod/"+containerName, portMapping)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -865,7 +865,7 @@ func validateKubeconfig(kubeconfig string) bool {
 	tmpFile.Close()
 
 	// Validate kubeconfig by trying to list nodes
-	cmd := kubectlCommand( "--kubeconfig", tmpFile.Name(), "get", "nodes")
+	cmd := kubectlCommand("--kubeconfig", tmpFile.Name(), "get", "nodes")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -1135,7 +1135,7 @@ func runContainer() {
 
 		// Check if volumes exist
 		for _, vol := range extraVolumes {
-			cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "get", "pvc", vol)
+			cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "get", "pvc", vol)
 			err := cmd.Run()
 			if err != nil {
 				fmt.Printf("Warning: Volume %s may not exist. Use 'hpcgame volume ls' to list available volumes\n", vol)
@@ -1181,7 +1181,7 @@ func runContainer() {
 	fmt.Print("Waiting for container to start...")
 	for i := 0; i < 10; i++ {
 		fmt.Print(".")
-		cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "get", "pod", name, "-o", "jsonpath={.status.phase}")
+		cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "get", "pod", name, "-o", "jsonpath={.status.phase}")
 		output, err := cmd.Output()
 		if err == nil && string(output) == "Running" {
 			fmt.Println("\n✅ Container is running!")
@@ -1292,7 +1292,7 @@ spec:
 	tmpFile.Close()
 
 	// Apply config
-	cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "apply", "-f", tmpFile.Name())
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "apply", "-f", tmpFile.Name())
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err = cmd.Run()
@@ -1313,7 +1313,7 @@ func listContainers() {
 	fmt.Println("Retrieving container list...")
 
 	// Get current namespace
-	cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "config", "view", "--minify", "-o", "jsonpath={..namespace}")
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "config", "view", "--minify", "-o", "jsonpath={..namespace}")
 	namespaceOutput, err := cmd.Output()
 
 	namespace := string(namespaceOutput)
@@ -1322,7 +1322,7 @@ func listContainers() {
 	}
 
 	// Get pods as JSON to parse detailed status
-	cmd = kubectlCommand( "--kubeconfig", kubeconfigPath, "get", "pods", "-n", namespace, "-o", "json")
+	cmd = kubectlCommand("--kubeconfig", kubeconfigPath, "get", "pods", "-n", namespace, "-o", "json")
 	output, err := cmd.Output()
 	if err != nil {
 		fmt.Printf("Failed to get container list: %s\n", err)
@@ -1394,7 +1394,7 @@ func deleteContainer() {
 	containerName := os.Args[2]
 	fmt.Printf("Removing container %s...\n", containerName)
 
-	cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "delete", "pod", containerName)
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "delete", "pod", containerName)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -1411,7 +1411,7 @@ func ensurePartitionDefaultVolume(kubeconfigPath string, partition Partition) er
 	defaultVolumeName := fmt.Sprintf("%s-default-pvc", partition.StorageClass)
 
 	// Check if volume already exists
-	cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "get", "pvc", defaultVolumeName)
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "get", "pvc", defaultVolumeName)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -1456,7 +1456,7 @@ spec:
 	tmpFile.Close()
 
 	// Apply volume config
-	cmd = kubectlCommand( "--kubeconfig", kubeconfigPath, "apply", "-f", tmpFile.Name())
+	cmd = kubectlCommand("--kubeconfig", kubeconfigPath, "apply", "-f", tmpFile.Name())
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err = cmd.Run()
@@ -1470,7 +1470,7 @@ spec:
 }
 
 func listVolumes(kubeconfigPath string) error {
-	cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "get", "pvc", "-o", "json")
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "get", "pvc", "-o", "json")
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get volume list: %s", err)
@@ -1680,7 +1680,7 @@ func createContainer() {
 
 		// Check if volumes exist
 		for _, vol := range extraVolumes {
-			cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "get", "pvc", vol)
+			cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "get", "pvc", vol)
 			err := cmd.Run()
 			if err != nil {
 				fmt.Printf("Warning: Volume %s may not exist. Use 'hpcgame volume ls' to list available volumes\n", vol)
@@ -1765,7 +1765,7 @@ spec:
 	tmpFile.Close()
 
 	// Apply volume config
-	cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "apply", "-f", tmpFile.Name())
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "apply", "-f", tmpFile.Name())
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err = cmd.Run()
@@ -1785,7 +1785,7 @@ func deleteVolume(kubeconfigPath string, name string) error {
 	}
 
 	// Delete volume
-	cmd := kubectlCommand( "--kubeconfig", kubeconfigPath, "delete", "pvc", name)
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "delete", "pvc", name)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err := cmd.Run()
