@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -105,6 +106,8 @@ func main() {
 		createContainer()
 	case "shell":
 		shellContainer()
+	case "code":
+		codeContainer()
 	case "ls":
 		listContainers()
 	case "lspart":
@@ -148,6 +151,7 @@ Original Commands:
   ls              List containers for current account
   lspart          List available partitions
   shell           Connect to container terminal
+  code            Open container in VSCode
   delete          Delete a container
   portforward     Set up port forwarding
   volume          Manage persistent volumes
@@ -180,7 +184,10 @@ Examples:
   
   # Connect to container shell (original method)
   hpcgame shell my-container
-  
+
+  # Open container in VSCode
+  hpcgame code my-container
+
   # Execute commands in container (Docker-style)
   hpcgame exec -it my-container bash
   
@@ -491,6 +498,79 @@ func shellContainer() {
 		fmt.Printf("Failed to connect to container: %s\n", err)
 		return
 	}
+}
+
+func codeContainer() {
+	if len(os.Args) < 3 {
+		fmt.Println("Usage: hpcgame code <container-name> [path]")
+		return
+	}
+	containerName := os.Args[2]
+	targetPath := "/partition-data"
+	if len(os.Args) >= 4 {
+		targetPath = os.Args[3]
+	}
+
+	kubeconfigPath := getKubeConfig()
+	if kubeconfigPath == "" {
+		return
+	}
+
+	// Get namespace
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "config", "view", "--minify", "-o", "jsonpath={..namespace}")
+	namespaceOutput, err := cmd.Output()
+	namespace := string(namespaceOutput)
+	if err != nil || namespace == "" {
+		namespace = "default"
+	}
+
+	// Get current-context
+	cmd = kubectlCommand("--kubeconfig", kubeconfigPath, "config", "current-context")
+	contextOutput, err := cmd.Output()
+	if err != nil {
+		fmt.Printf("Failed to get current context: %s\n", err)
+		return
+	}
+	context := strings.TrimSpace(string(contextOutput))
+
+	// Verify pod exists and is Running
+	cmd = kubectlCommand("--kubeconfig", kubeconfigPath, "get", "pod", containerName, "-o", "jsonpath={.status.phase}")
+	phaseOutput, err := cmd.Output()
+	if err != nil {
+		fmt.Printf("Container '%s' not found. Use 'hpcgame ps' to list available containers.\n", containerName)
+		return
+	}
+	phase := string(phaseOutput)
+	if phase != "Running" {
+		fmt.Printf("Container '%s' is not running (status: %s)\n", containerName, phase)
+		return
+	}
+
+	// Build config JSON and encode to hex
+	config := map[string]string{
+		"context":   context,
+		"podname":   containerName,
+		"namespace": namespace,
+		"name":      "container",
+	}
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		fmt.Printf("Failed to create config: %s\n", err)
+		return
+	}
+	hexConfig := hex.EncodeToString(configJSON)
+
+	// Build URI with hex-encoded config
+	uri := fmt.Sprintf("vscode-remote://k8s-container+%s%s", hexConfig, targetPath)
+
+	// Execute code command
+	codeCmd := exec.Command("code", "--folder-uri", uri)
+	if err := codeCmd.Run(); err != nil {
+		fmt.Printf("Failed to open VSCode: %s\n", err)
+		fmt.Println("Make sure VSCode and the Kubernetes extension are installed.")
+		return
+	}
+	fmt.Printf("Opening VSCode connected to container '%s'...\n", containerName)
 }
 
 func execInContainer() {
