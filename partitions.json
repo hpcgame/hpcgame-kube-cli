@@ -1,5 +1,64 @@
 [
   {
+    "Name": "yanyuan_8358",
+    "DisplayName": "燕园 8358",
+    "Description": "Intel Xeon 8358 计算节点 (燕园机房)，x86开发优先使用这个",
+    "GPUTag": "",
+    "GPUName": "",
+    "Images": [
+      "cr.hpc.lcpu.dev/hpcgame/base:latest",
+      "cr.hpc.lcpu.dev/docker.io/ubuntu:24.04"
+    ],
+    "CPULimit": 32,
+    "MemoryLimit": 32,
+    "StorageClass": "yanyuan-nfs"
+  },
+  {
+    "Name": "yanyuan_9654",
+    "DisplayName": "燕园 9654",
+    "Description": "AMD EPYC 9654 计算节点 (燕园机房)，带V100 16G，适用于开发",
+    "GPUTag": "nvidia.com/gpu",
+    "GPUName": "V100 16G",
+    "Images": [
+      "cr.hpc.lcpu.dev/hpcgame/base:latest",
+      "cr.hpc.lcpu.dev/hpcgame/cuda:latest",
+      "cr.hpc.lcpu.dev/docker.io/ubuntu:24.04"
+    ],
+    "CPULimit": 8,
+    "MemoryLimit": 16,
+    "StorageClass": "yanyuan-nfs"
+  },
+   {
+    "Name": "arm_v200",
+    "DisplayName": "ARM 920B 高性能版",
+    "Description": "ARM 920B 高性能版 (燕园机房)，适用于 ARM 开发",
+    "GPUTag": "",
+    "GPUName": "",
+    "Images": [
+      "cr.hpc.lcpu.dev/hpcgame/base:latest",
+      "cr.hpc.lcpu.dev/hpcgame/3rd-kunpeng920:latest",
+      "cr.hpc.lcpu.dev/docker.io/ubuntu:24.04"
+    ],
+    "CPULimit": 32,
+    "MemoryLimit": 32,
+    "StorageClass": "yanyuan-nfs"
+  },
+  {
+    "Name": "arm_dev",
+    "DisplayName": "ARM 920A 64核",
+    "Description": "ARM 920A 64核 (燕园机房)",
+    "GPUTag": "",
+    "GPUName": "",
+    "Images": [
+      "cr.hpc.lcpu.dev/hpcgame/base:latest",
+      "cr.hpc.lcpu.dev/hpcgame/3rd-kunpeng920:latest",
+      "cr.hpc.lcpu.dev/docker.io/ubuntu:24.04"
+    ],
+    "CPULimit": 16,
+    "MemoryLimit": 16,
+    "StorageClass": "yanyuan-nfs"
+  },
+  {
     "Name": "wm2_8358",
     "DisplayName": "未名二号 8358",
     "Description": "Intel Xeoon 8358 计算节点 (未名二号机房)",
@@ -7,40 +66,11 @@
     "GPUName": "",
     "Images": [
       "cr.hpc.lcpu.dev/hpcgame/base:latest",
-      "ubuntu:24.04"
+      "cr.hpc.lcpu.dev/docker.io/ubuntu:24.04"
     ],
     "CPULimit": 32,
     "MemoryLimit": 32,
     "StorageClass": "wm2-nfs"
-  },
-  {
-    "Name": "yanyuan_9654",
-    "DisplayName": "燕园 9654",
-    "Description": "AMD EPYC 9654 计算节点 (燕园机房)",
-    "GPUTag": "nvidia.com/gpu",
-    "GPUName": "V100 16G",
-    "Images": [
-      "cr.hpc.lcpu.dev/hpcgame/base:latest",
-      "cr.hpc.lcpu.dev/hpcgame/cuda:latest",
-      "ubuntu:24.04"
-    ],
-    "CPULimit": 8,
-    "MemoryLimit": 16,
-    "StorageClass": "yanyuan-nfs"
-  },
-  {
-    "Name": "yanyuan_8358",
-    "DisplayName": "燕园 8358",
-    "Description": "Intel Xeon 8358 计算节点 (燕园机房)",
-    "GPUTag": "",
-    "GPUName": "",
-    "Images": [
-      "cr.hpc.lcpu.dev/hpcgame/base:latest",
-      "ubuntu:24.04"
-    ],
-    "CPULimit": 32,
-    "MemoryLimit": 32,
-    "StorageClass": "yanyuan-nfs"
   },
   {
     "Name": "arm_920f",
@@ -51,7 +81,7 @@
     "Images": [
       "cr.hpc.lcpu.dev/hpcgame/base:latest",
       "cr.hpc.lcpu.dev/hpcgame/3rd-kunpeng920:latest",
-      "ubuntu:24.04"
+      "cr.hpc.lcpu.dev/docker.io/ubuntu:24.04"
     ],
     "CPULimit": 4,
     "MemoryLimit": 16,
@@ -66,40 +96,10 @@
     "Images": [
       "cr.hpc.lcpu.dev/hpcgame/base:latest",
       "cr.hpc.lcpu.dev/hpcgame/3rd-kunpeng920:latest",
-      "ubuntu:24.04"
+      "cr.hpc.lcpu.dev/docker.io/ubuntu:24.04"
     ],
     "CPULimit": 16,
     "MemoryLimit": 16,
-    "StorageClass": "yanyuan-nfs"
-  },
-  {
-    "Name": "arm_dev",
-    "DisplayName": "ARM 920A 64核",
-    "Description": "ARM 920A 64核 (燕园机房)",
-    "GPUTag": "",
-    "GPUName": "",
-    "Images": [
-      "cr.hpc.lcpu.dev/hpcgame/base:latest",
-      "cr.hpc.lcpu.dev/hpcgame/3rd-kunpeng920:latest",
-      "ubuntu:24.04"
-    ],
-    "CPULimit": 16,
-    "MemoryLimit": 16,
-    "StorageClass": "yanyuan-nfs"
-  },
-  {
-    "Name": "arm_v200",
-    "DisplayName": "ARM 920B 高性能版",
-    "Description": "ARM 920B 高性能版 (燕园机房)",
-    "GPUTag": "",
-    "GPUName": "",
-    "Images": [
-      "cr.hpc.lcpu.dev/hpcgame/base:latest",
-      "cr.hpc.lcpu.dev/hpcgame/3rd-kunpeng920:latest",
-      "ubuntu:24.04"
-    ],
-    "CPULimit": 32,
-    "MemoryLimit": 32,
     "StorageClass": "yanyuan-nfs"
   },
   {
@@ -109,10 +109,8 @@
     "GPUTag": "nvidia.com/gpu",
     "GPUName": "NVIDIA A800 80GB",
     "Images": [
-      "nvcr.io/nvidia/pytorch:24.01-py3",
-      "nvcr.io/nvidia/tensorflow:24.01-tf2-py3",
-      "ubuntu:22.04",
-      "python:3.11"
+      "cr.hpc.lcpu.dev/hpcgame/cuda:latest",
+      "cr.hpc.lcpu.dev/docker.io/ubuntu:24.04"
     ],
     "CPULimit": 16,
     "MemoryLimit": 32,
@@ -127,10 +125,10 @@
   "Images": [
     "cr.hpc.lcpu.dev/hpcgame/base:latest",
     "cr.hpc.lcpu.dev/hpcgame/rocm-prefill:latest",
-    "ubuntu:24.04"
+    "cr.hpc.lcpu.dev/docker.io/ubuntu:24.04"
   ],
-  "CPULimit": 16,
-  "MemoryLimit": 32,
+  "CPULimit": 24,
+  "MemoryLimit": 128,
   "StorageClass": "yanyuan-nfs"
  }
 ]

@@ -22,7 +22,7 @@ import (
 const (
 	kubeconfigDir  = ".kube"
 	kubeconfigFile = "config"
-	version        = "0.6.1"
+	version        = "0.6.2"
 )
 
 type Container struct {
@@ -1304,6 +1304,83 @@ spec:
 	return nil
 }
 
+// getKueuePendingReason queries the Kueue workload to get detailed pending reason
+func getKueuePendingReason(kubeconfigPath, namespace, podName string) string {
+	// Query workloads in namespace
+	cmd := kubectlCommand("--kubeconfig", kubeconfigPath, "get", "workload", "-n", namespace, "-o", "json")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	var workloadList struct {
+		Items []struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+			Status struct {
+				Conditions []struct {
+					Type    string `json:"type"`
+					Status  string `json:"status"`
+					Message string `json:"message"`
+				} `json:"conditions"`
+			} `json:"status"`
+		} `json:"items"`
+	}
+
+	if err := json.Unmarshal(output, &workloadList); err != nil {
+		return ""
+	}
+
+	// Find workload for this pod (naming convention: pod-{podname}-{hash})
+	for _, wl := range workloadList.Items {
+		if strings.Contains(wl.Metadata.Name, podName) {
+			for _, cond := range wl.Status.Conditions {
+				if cond.Type == "QuotaReserved" && cond.Status == "False" && cond.Message != "" {
+					return parseKueueMessage(cond.Message)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// parseKueueMessage extracts user-friendly reason from Kueue message
+func parseKueueMessage(message string) string {
+	// Check for insufficient quota patterns
+	if strings.Contains(message, "insufficient unused quota") {
+		if strings.Contains(message, "gpu") || strings.Contains(message, "GPU") {
+			return "GPU资源不足"
+		}
+		if strings.Contains(message, "memory") {
+			return "内存资源不足"
+		}
+		if strings.Contains(message, "cpu") {
+			return "CPU资源不足"
+		}
+		return "配额不足"
+	}
+	return ""
+}
+
+// getFriendlyPendingReason returns user-friendly Chinese description for pending reason
+func getFriendlyPendingReason(reason string) string {
+	switch reason {
+	case "Unschedulable":
+		return "无法调度"
+	case "ImagePullBackOff", "ErrImagePull":
+		return "镜像拉取失败，镜像名可能写错"
+	case "ContainerCreating":
+		return "创建中"
+	case "PodInitializing":
+		return "初始化中"
+	case "SchedulingGated":
+		return "排队中"
+	default:
+		return reason
+	}
+}
+
 func listContainers() {
 	kubeconfigPath := getKubeConfig()
 	if kubeconfigPath == "" {
@@ -1340,10 +1417,26 @@ func listContainers() {
 				Containers []struct {
 					Image string `json:"image"`
 				} `json:"containers"`
+				SchedulingGates []struct {
+					Name string `json:"name"`
+				} `json:"schedulingGates"`
 			} `json:"spec"`
 			Status struct {
-				Phase  string `json:"phase"`
-				Reason string `json:"reason"`
+				Phase      string `json:"phase"`
+				Reason     string `json:"reason"`
+				Conditions []struct {
+					Type    string `json:"type"`
+					Status  string `json:"status"`
+					Reason  string `json:"reason"`
+					Message string `json:"message"`
+				} `json:"conditions"`
+				ContainerStatuses []struct {
+					State struct {
+						Waiting struct {
+							Reason string `json:"reason"`
+						} `json:"waiting"`
+					} `json:"state"`
+				} `json:"containerStatuses"`
 			} `json:"status"`
 		} `json:"items"`
 	}
@@ -1355,7 +1448,7 @@ func listContainers() {
 	}
 
 	// Print header
-	fmt.Printf("%-20s %-45s %-10s %-22s %s\n", "CONTAINER", "IMAGE", "STATUS", "CREATED", "NODE")
+	fmt.Printf("%-20s %-45s %-28s %-22s %s\n", "CONTAINER", "IMAGE", "STATUS", "CREATED", "NODE")
 
 	// Print each container
 	for _, pod := range podList.Items {
@@ -1368,9 +1461,57 @@ func listContainers() {
 		status := pod.Status.Phase
 		if pod.Status.Phase == "Failed" && pod.Status.Reason == "DeadlineExceeded" {
 			status = "Timeout"
+		} else if pod.Status.Phase == "Pending" {
+			pendingReason := ""
+			friendlyReason := ""
+
+			// Priority 1: Scheduling Gates (Kueue managed pods)
+			if len(pod.Spec.SchedulingGates) > 0 {
+				// Query Kueue workload for detailed reason
+				kueueReason := getKueuePendingReason(kubeconfigPath, namespace, pod.Metadata.Name)
+				if kueueReason != "" {
+					friendlyReason = "排队中: " + kueueReason
+				} else {
+					friendlyReason = "排队中"
+				}
+			}
+
+			// Priority 2: Container waiting state
+			if friendlyReason == "" {
+				for _, cs := range pod.Status.ContainerStatuses {
+					if cs.State.Waiting.Reason != "" {
+						pendingReason = cs.State.Waiting.Reason
+						break
+					}
+				}
+			}
+
+			// Priority 3: Pod-level reason
+			if friendlyReason == "" && pendingReason == "" && pod.Status.Reason != "" {
+				pendingReason = pod.Status.Reason
+			}
+
+			// Priority 4: PodScheduled condition
+			if friendlyReason == "" && pendingReason == "" {
+				for _, cond := range pod.Status.Conditions {
+					if cond.Type == "PodScheduled" && cond.Status == "False" {
+						if cond.Reason != "" {
+							pendingReason = cond.Reason
+						}
+						break
+					}
+				}
+			}
+
+			// Build final status string
+			if friendlyReason != "" {
+				status = friendlyReason
+			} else if pendingReason != "" {
+				status = getFriendlyPendingReason(pendingReason)
+			}
 		}
 
-		fmt.Printf("%-20s %-45s %-10s %-22s %s\n",
+		fmt.Printf("%-20s %-45s %-28s %-22s %s\n",
 			pod.Metadata.Name,
 			image,
 			status,
